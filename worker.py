@@ -54,6 +54,38 @@ def now():
     return datetime.utcnow().strftime("%H:%M:%S")
 
 
+def iter_stream_lines(stream):
+    """Read a text stream char-by-char and yield 'lines' split on either
+    \\n or \\r. curl --progress-bar rewrites its progress line using \\r
+    without ever emitting \\n, so the default `for line in stream` never
+    yields until the whole transfer is done. This makes progress live."""
+    buf = []
+    while True:
+        ch = stream.read(1)
+        if ch == "":
+            break
+        if ch == "\n" or ch == "\r":
+            if buf:
+                yield "".join(buf)
+                buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        yield "".join(buf)
+
+
+def fmt_bytes(n):
+    try:
+        n = float(n)
+    except Exception:
+        return ""
+    for unit in ["B", "KiB", "MiB", "GiB", "TiB"]:
+        if n < 1024 or unit == "TiB":
+            return f"{n:.2f}{unit}" if unit != "B" else f"{int(n)}B"
+        n /= 1024
+    return f"{n:.2f}TiB"
+
+
 def set_job(job_id, **kwargs):
     with jobs_lock:
         if job_id in jobs:
@@ -131,14 +163,15 @@ def detect_source_type(url):
     return "direct"
 
 
-def build_direct_cmd(url, dest_path):
+def build_direct_cmd(url, dest_path, progress_file):
     safe_url  = shlex.quote(url)
     safe_dest = shlex.quote(dest_path)
     referer   = get_referer(url)
     rclone_cfg = shlex.quote(RCLONE_CONFIG_PATH)
+    safe_prog = shlex.quote(progress_file)
 
     return (
-        f"curl -L "
+        f"curl -g -L "
         f"--connect-timeout {CONNECT_TIMEOUT} "
         f"--retry 3 --retry-delay 5 --retry-all-errors "
         f"--speed-limit 1 --speed-time {STALL_TIMEOUT} "
@@ -149,9 +182,8 @@ def build_direct_cmd(url, dest_path):
         f"-H 'Accept: */*' "
         f"-H 'Accept-Language: en-US,en;q=0.9' "
         f"-H 'Connection: keep-alive' "
-        f"--progress-bar "
         f"--fail "
-        f"{safe_url} | RCLONE_CONFIG={rclone_cfg} rclone rcat {safe_dest}"
+        f"{safe_url} 2>{safe_prog} | RCLONE_CONFIG={rclone_cfg} rclone rcat {safe_dest}"
     )
 
 
@@ -202,6 +234,85 @@ def kill_job_process(job_id):
                 pass
 
 
+RCLONE_TABLE_RE = re.compile(
+    r'^\s*(\d+)\s+([\d.]+[KMGTkmgt]?)\s+\d+\s+([\d.]+[KMGTkmgt]?)\s+\d+\s+\d+\s+([\d.]+[KMGTkmgt]?)'
+)
+
+
+def parse_curl_table_row(line):
+    """Parse one row of curl's classic progress table:
+    % Total  % Received % Xferd  Average Speed  Time Time Time  Current
+                                  Dload  Upload   Total Spent  Left  Speed
+    Returns dict or None."""
+    m = RCLONE_TABLE_RE.match(line)
+    if not m:
+        return None
+    pct_val = int(m.group(1))
+    total_s = m.group(2)
+    spent_s = m.group(3)
+    speed_s = m.group(4)
+    try:
+        spd_b = _parse_size_str(speed_s + "B")
+        tot_b = _parse_size_str(total_s + "B")
+        spt_b = _parse_size_str(spent_s + "B")
+        left_b = max(0, tot_b - spt_b)
+        left_secs = int(left_b / spd_b) if spd_b else 0
+        left_str = f"{left_secs//60}m{left_secs%60:02d}s" if left_secs > 0 else "—"
+    except Exception:
+        spd_b = 0
+        left_str = "—"
+    return {
+        "pct": pct_val,
+        "total": total_s,
+        "spent": spent_s,
+        "left": left_str,
+        "speed": speed_s + "/s",
+        "speed_bytes": spd_b,
+    }
+
+
+def tail_progress_file(job_id, path, stop_event):
+    """Poll the curl progress file and push the latest table row into the
+    job state every ~0.4s, so the UI shows the same live table the user
+    sees in the Railway console."""
+    last_row = None
+    while not stop_event.is_set():
+        try:
+            with open(path, "r", errors="ignore") as f:
+                data = f.read()
+        except Exception:
+            data = ""
+        if data:
+            chunks = re.split(r'[\r\n]+', data)
+            for chunk in reversed(chunks):
+                row = parse_curl_table_row(chunk)
+                if row:
+                    if row != last_row:
+                        last_row = row
+                        with jobs_lock:
+                            if job_id in jobs:
+                                rows = jobs[job_id].setdefault("rclone_rows", [])
+                                rows.append(row)
+                                if len(rows) > 500:
+                                    del rows[:len(rows)-500]
+                        set_job(job_id,
+                            progress=row["pct"],
+                            rclone_progress={
+                                "pct":   row["pct"],
+                                "total": row["total"],
+                                "spent": row["spent"],
+                                "left":  row["left"],
+                                "speed": row["speed"],
+                            },
+                            speed=row["speed"]
+                        )
+                        update_speed_history(row["speed_bytes"], 0)
+                    break
+        stop_event.wait(0.4)
+    with jobs_lock:
+        return jobs.get(job_id, {}).get("status") == "cancelled"
+
+
 def is_cancelled(job_id):
     with jobs_lock:
         return jobs.get(job_id, {}).get("status") == "cancelled"
@@ -238,7 +349,8 @@ def run_job(job):
     dest_path = f"{dest}/{filename}"
 
     set_job(job_id, status="running", log="", progress=0, retries=0,
-            started_at=now(), source_type=source_type, speed="", eta="")
+            started_at=now(), source_type=source_type, speed="", eta="",
+            rclone_progress=None, rclone_rows=[])
     append_log(job_id, f"[{now()}] Starting: {filename}\n")
     append_log(job_id, f"[{now()}] Source: {source_type.upper()} → {dest_path}\n")
 
@@ -251,14 +363,18 @@ def run_job(job):
             with urllib.request.urlopen(req, timeout=8) as resp:
                 cl = resp.headers.get("Content-Length")
                 if cl and cl.isdigit() and int(cl) > 0:
-                    set_job(job_id, filesize=int(cl))
+                    set_job(job_id, filesize=int(cl), filesize_str=fmt_bytes(int(cl)))
         except Exception:
             pass
 
     if source_type in ("youtube", "instagram"):
         cmd = build_ytdlp_cmd(url, dest_path, quality)
+        progress_file = None
     else:
-        cmd = build_direct_cmd(url, dest_path)
+        progress_file = f"/tmp/curlprog_{job_id}.log"
+        cmd = build_direct_cmd(url, dest_path, progress_file)
+
+    append_log(job_id, f"[{now()}] CMD: {cmd[:200]}{'...' if len(cmd)>200 else ''}\n")
 
     env = os.environ.copy()
     env["RCLONE_CONFIG"] = RCLONE_CONFIG_PATH
@@ -282,12 +398,25 @@ def run_job(job):
             with processes_lock:
                 processes[job_id] = p
 
+            tail_stop = threading.Event()
+            tail_thread = None
+            if progress_file:
+                try:
+                    open(progress_file, "a").close()
+                except Exception:
+                    pass
+                tail_thread = threading.Thread(
+                    target=tail_progress_file, args=(job_id, progress_file, tail_stop), daemon=True
+                )
+                tail_thread.start()
+
             last_dl_bytes = 0
             last_speed = 0.0
 
-            for line in p.stdout:
+            for line in iter_stream_lines(p.stdout):
                 if is_cancelled(job_id):
                     kill_job_process(job_id)
+                    tail_stop.set()
                     append_log(job_id, f"[{now()}] Cancelled mid-transfer.\n")
                     return
 
@@ -298,7 +427,6 @@ def run_job(job):
                         set_job(job_id, progress=pct, speed=speed_str or "", eta=eta_str or "")
                         if size_str:
                             set_job(job_id, filesize_str=size_str)
-                        # estimate speed bytes
                         spd = 0
                         if speed_str:
                             m = re.search(r'([\d.]+)\s*([KkMmGg]?)iB/s', speed_str)
@@ -310,7 +438,53 @@ def run_job(job):
                         update_speed_history(spd, spd * 0.95)
                         continue
 
-                # curl progress
+                # rclone/curl progress table — MUST run before is_progress_line filter
+                # curl --progress-bar table format:
+                #   % Total    % Received  % Xferd  Average Speed   Time    Time     Time  Current
+                #                                    Dload  Upload   Total   Spent    Left  Speed
+                #  5  1.34G  5  81.23M  0  0  79.25M  0 --:--:-- --:--:-- --:--:-- 79.20M
+                # Simplified rows (after header scrolls off):
+                #  45  1.34G  45  625.0M  0  0  85.34M  0 ...
+                # We match the core numeric block at start of line:
+                rclone_match = re.match(
+                    r'^\s*(\d+)\s+([\d.]+[KMGTkmgt]?)\s+\d+\s+([\d.]+[KMGTkmgt]?)\s+\d+\s+\d+\s+([\d.]+[KMGTkmgt]?)',
+                    line
+                )
+                if rclone_match:
+                    pct_val  = int(rclone_match.group(1))
+                    total_s  = rclone_match.group(2)
+                    spent_s  = rclone_match.group(3)
+                    speed_s  = rclone_match.group(4)
+
+                    def fmt_size(s):
+                        """Add B suffix for display if missing"""
+                        return s if s[-1].isalpha() else s + "B"
+
+                    try:
+                        spd_b  = _parse_size_str(speed_s + "B") or 1
+                        tot_b  = _parse_size_str(total_s + "B")
+                        spt_b  = _parse_size_str(spent_s + "B")
+                        left_b = max(0, tot_b - spt_b)
+                        left_secs = int(left_b / spd_b) if spd_b else 0
+                        left_str  = f"{left_secs//60}m{left_secs%60:02d}s" if left_secs > 0 else "—"
+                    except Exception:
+                        left_str = "—"
+
+                    set_job(job_id,
+                        progress=pct_val,
+                        rclone_progress={
+                            "pct":   pct_val,
+                            "total": total_s,
+                            "spent": spent_s,
+                            "left":  left_str,
+                            "speed": speed_s + "/s",
+                        },
+                        speed=speed_s + "/s"
+                    )
+                    update_speed_history(spd_b, 0)
+                    continue
+
+                # curl progress % only
                 progress = parse_progress(line)
                 if progress is not None:
                     set_job(job_id, progress=progress)
@@ -321,6 +495,12 @@ def run_job(job):
                         append_log(job_id, f"[{now()}] {clean}\n")
 
             p.wait()
+            tail_stop.set()
+            if progress_file:
+                try:
+                    os.remove(progress_file)
+                except Exception:
+                    pass
 
             with processes_lock:
                 processes.pop(job_id, None)
@@ -357,6 +537,8 @@ def run_job(job):
                         time.sleep(0.5)
 
         except Exception as e:
+            if 'tail_stop' in dir():
+                tail_stop.set()
             with processes_lock:
                 processes.pop(job_id, None)
             append_log(job_id, f"[{now()}] Exception: {e} — attempt {attempt}/{MAX_RETRIES}\n")
