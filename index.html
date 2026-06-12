@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Licher — Transfer Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #060810;
+  --bg2:      #080b14;
+  --s1:       #0b0f1c;
+  --s2:       #0e1220;
+  --s3:       #121728;
+  --border:   #1a2035;
+  --border2:  #232d47;
+  --text:     #d0ddf0;
+  --muted:    #3a4d6e;
+  --muted2:   #5a7090;
+  --cyan:     #00d4ff;
+  --cyan2:    #00a8cc;
+  --green:    #00f0a0;
+  --green2:   #00c07a;
+  --purple:   #9d5cff;
+  --orange:   #ff7040;
+  --red:      #ff2d55;
+  --yellow:   #ffc43d;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Inter', sans-serif;
+  --radius:   16px;
+  --radius-sm:10px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  padding: 0 0 80px;
+  overflow-x: hidden;
+}
+
+/* ── Ambient glow background ── */
+body::before {
+  content: '';
+  position: fixed;
+  top: -30vh; left: 50%;
+  transform: translateX(-50%);
+  width: 80vw; height: 60vh;
+  background: radial-gradient(ellipse at center,
+    rgba(0,212,255,0.04) 0%,
+    rgba(0,240,160,0.025) 40%,
+    transparent 70%);
+  pointer-events: none; z-index: 0;
+}
+
+/* ── Subtle grid ── */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.018) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none; z-index: 0;
+}
+
+.wrap {
+  position: relative; z-index: 1;
+  width: 100%; max-width: 800px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+/* ══════════════════════════════════════
+   HEADER
+══════════════════════════════════════ */
+header {
+  display: flex; align-items: center;
+  padding: 32px 0 10px;
+}
+
+.logo-block {
+  display: flex; align-items: center; gap: 16px;
+  flex: 1;
+}
+
+.logo-icon {
+  width: 50px; height: 50px; flex-shrink: 0;
+  background: linear-gradient(135deg, rgba(0,212,255,0.12), rgba(0,240,160,0.06));
+  border: 1px solid rgba(0,212,255,0.2);
+  border-radius: 14px;
+  display: grid; place-items: center;
+  box-shadow: 0 0 24px rgba(0,212,255,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+.logo-icon svg { width: 28px; height: 28px; }
+
+.logo-text-group { display: flex; flex-direction: column; gap: 3px; }
+
+.logo-name {
+  font-family: var(--mono);
+  font-size: 20px; font-weight: 700;
+  letter-spacing: 4px; text-transform: uppercase;
+  background: linear-gradient(110deg, var(--cyan) 0%, var(--green) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.logo-tagline {
+  font-size: 9px; font-family: var(--mono);
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--muted2);
+}
+
+.header-right {
+  display: flex; align-items: center; gap: 10px;
+}
+
+.status-pill {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 9px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--green2);
+  border: 1px solid rgba(0,240,160,0.18);
+  padding: 6px 14px; border-radius: 20px;
+  background: rgba(0,240,160,0.04);
+  backdrop-filter: blur(8px);
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: blink 2.5s ease-in-out infinite;
+}
+
+/* ══════════════════════════════════════
+   STAT STRIP
+══════════════════════════════════════ */
+.stats-totals {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+
+.stat-cell {
+  background: var(--s1);
+  padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 5px;
+  position: relative;
+  transition: background .2s;
+}
+.stat-cell:hover { background: var(--s2); }
+
+.stat-cell::before {
+  content: '';
+  position: absolute; top: 0; left: 18px; right: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,212,255,0.2), transparent);
+}
+
+.stat-cell-label {
+  font-size: 8px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+}
+.stat-cell-val {
+  font-family: var(--mono);
+  font-size: 17px; font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+.stat-cell-val.cyan   { color: var(--cyan); }
+.stat-cell-val.green  { color: var(--green); }
+.stat-cell-val.purple { color: var(--purple); }
+
+/* ══════════════════════════════════════
+   GLASS CARD
+══════════════════════════════════════ */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+
+.card-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,212,255,0.03) 0%, transparent 100%);
+}
+.card-head-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+}
+.card-head-title {
+  font-size: 9px; font-family: var(--mono);
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--muted2); flex: 1;
+}
+
+.card-body { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+/* ══════════════════════════════════════
+   SOURCE TABS
+══════════════════════════════════════ */
+.source-tabs { display: flex; gap: 6px; }
+.source-tab {
+  flex: 1; padding: 9px 10px;
+  background: var(--s2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  cursor: pointer; font-family: var(--mono);
+  font-size: 10px; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--muted2);
+  transition: all .2s; text-align: center;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+}
+.source-tab:hover { color: var(--text); border-color: var(--muted); }
+.source-tab.active {
+  background: rgba(0,212,255,0.08);
+  border-color: rgba(0,212,255,0.35);
+  color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0,212,255,0.06);
+}
+.source-tab.yt.active {
+  background: rgba(255,48,48,0.08);
+  border-color: rgba(255,48,48,0.35);
+  color: #ff3030;
+}
+.source-tab.ig.active {
+  background: rgba(157,92,255,0.08);
+  border-color: rgba(157,92,255,0.35);
+  color: var(--purple);
+}
+
+/* ══════════════════════════════════════
+   FIELDS & INPUTS
+══════════════════════════════════════ */
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field-label {
+  font-size: 9px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted2);
+}
+
+.input-wrap { position: relative; }
+.input-ico {
+  position: absolute; left: 14px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px; color: var(--muted); pointer-events: none;
+}
+
+input[type=text], input[type=url], select {
+  width: 100%; background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm); color: var(--text);
+  font-family: var(--mono); font-size: 12px;
+  padding: 12px 14px 12px 40px; outline: none;
+  transition: border-color .2s, box-shadow .2s, background .2s;
+}
+input:focus, select:focus {
+  border-color: rgba(0,212,255,0.5);
+  box-shadow: 0 0 0 3px rgba(0,212,255,0.07), 0 0 16px rgba(0,212,255,0.04);
+  background: var(--s1);
+}
+input::placeholder { color: var(--muted); }
+select { padding-left: 14px; }
+
+.dest-row { display: flex; gap: 8px; align-items: flex-end; }
+.dest-row .field { flex: 1; }
+.btn-browse {
+  height: 42px; padding: 0 16px;
+  background: rgba(0,212,255,0.06);
+  border: 1px solid rgba(0,212,255,0.22);
+  border-radius: var(--radius-sm); cursor: pointer;
+  color: var(--cyan); font-family: var(--mono);
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  transition: all .2s; white-space: nowrap; flex-shrink: 0;
+}
+.btn-browse:hover {
+  background: rgba(0,212,255,0.12);
+  border-color: rgba(0,212,255,0.45);
+  box-shadow: 0 0 14px rgba(0,212,255,0.08);
+}
+
+/* ══════════════════════════════════════
+   QUALITY ROW
+══════════════════════════════════════ */
+.quality-row { display: none; flex-wrap: wrap; gap: 6px; }
+.quality-row.visible { display: flex; }
+.q-btn {
+  padding: 7px 15px;
+  background: var(--s2); border: 1px solid var(--border2);
+  border-radius: 8px; cursor: pointer;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: var(--muted2); transition: all .2s;
+}
+.q-btn:hover { color: var(--text); border-color: var(--muted); }
+.q-btn.active {
+  background: rgba(255,48,48,0.1);
+  border-color: rgba(255,48,48,0.35);
+  color: #ff3030;
+}
+
+/* ══════════════════════════════════════
+   PROBE INFO BADGE
+══════════════════════════════════════ */
+.probe-info {
+  display: none;
+  align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 10px 14px;
+  background: rgba(0,212,255,0.04);
+  border: 1px solid rgba(0,212,255,0.14);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono); font-size: 10px;
+  color: var(--muted2);
+  animation: fadeUp .25s ease;
+}
+.probe-info.visible { display: flex; }
+.probe-info.probing { opacity: 0.6; }
+
+.probe-chip {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  background: var(--s2);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+}
+.probe-chip .pk { color: var(--muted2); }
+.probe-chip .pv { color: var(--text); font-weight: 500; }
+
+.probe-spinner {
+  width: 12px; height: 12px;
+  border: 1.5px solid rgba(0,212,255,0.2);
+  border-top-color: var(--cyan);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  display: none;
+}
+.probe-info.probing .probe-spinner { display: block; }
+
+/* ══════════════════════════════════════
+   START BUTTON
+══════════════════════════════════════ */
+.btn-start {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; padding: 15px;
+  background: linear-gradient(135deg, var(--cyan) 0%, var(--green) 100%);
+  border: none; border-radius: var(--radius-sm);
+  color: #000; font-family: var(--mono);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity .2s, transform .1s, box-shadow .2s;
+  box-shadow: 0 4px 24px rgba(0,212,255,0.2), 0 1px 0 rgba(255,255,255,0.1) inset;
+  position: relative; overflow: hidden;
+}
+.btn-start::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, transparent 50%);
+  pointer-events: none;
+}
+.btn-start:hover {
+  opacity: .92;
+  box-shadow: 0 6px 32px rgba(0,212,255,0.32);
+  transform: translateY(-1px);
+}
+.btn-start:active { transform: scale(.99) translateY(0); }
+.btn-start:disabled { opacity: .25; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.spin {
+  width: 13px; height: 13px;
+  border: 2px solid rgba(0,0,0,.2); border-top-color: #000;
+  border-radius: 50%; animation: spin .6s linear infinite; display: none;
+}
+.btn-start.loading .spin { display: block; }
+.btn-start.loading .lbl { display: none; }
+
+/* ══════════════════════════════════════
+   JOBS
+══════════════════════════════════════ */
+.jobs-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.toolbar-title {
+  font-size: 9px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted2); flex: 1;
+}
+.btn-sm {
+  background: none; border: 1px solid var(--border2); color: var(--muted2);
+  font-family: var(--mono); font-size: 9px; letter-spacing: 1px;
+  text-transform: uppercase; padding: 5px 12px; border-radius: 6px;
+  cursor: pointer; transition: color .2s, border-color .2s, background .2s;
+}
+.btn-sm:hover { color: var(--text); border-color: var(--muted); }
+.btn-sm.danger:hover { color: var(--red); border-color: var(--red); background: rgba(255,45,85,0.04); }
+.btn-sm.warn:hover   { color: var(--yellow); border-color: var(--yellow); background: rgba(255,196,61,0.04); }
+
+.jobs-list { display: flex; flex-direction: column; gap: 4px; padding: 12px; }
+
+/* ── Job Item ── */
+.job-item {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm); overflow: hidden;
+  transition: border-color .25s, box-shadow .25s;
+}
+.job-item:hover { border-color: var(--border2); }
+.job-item.is-running {
+  border-color: rgba(0,212,255,0.22);
+  box-shadow: 0 0 20px rgba(0,212,255,0.05);
+}
+.job-item.is-done    { border-color: rgba(0,240,160,0.18); }
+.job-item.is-failed  { border-color: rgba(255,45,85,0.2); }
+
+.job-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 16px; cursor: pointer;
+  transition: background .15s;
+}
+.job-row:hover { background: rgba(255,255,255,0.015); }
+
+.job-status-icon {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 9px; display: grid; place-items: center;
+  font-size: 13px; position: relative;
+  transition: all .2s;
+}
+.job-status-icon.queued    { background: rgba(58,77,110,.2);  color: var(--muted2); }
+.job-status-icon.running   { background: rgba(0,212,255,0.1); color: var(--cyan); }
+.job-status-icon.done      { background: rgba(0,240,160,0.1); color: var(--green); }
+.job-status-icon.failed    { background: rgba(255,45,85,0.1); color: var(--red); }
+.job-status-icon.cancelled { background: rgba(255,196,61,0.08); color: var(--yellow); }
+
+.job-status-icon.running::after {
+  content: '';
+  position: absolute; inset: -3px;
+  border-radius: 12px;
+  border: 1.5px solid var(--cyan);
+  animation: ring-pulse 1.8s ease-in-out infinite;
+}
+
+.job-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.job-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-sub {
+  font-size: 10px; font-family: var(--mono);
+  color: var(--muted2);
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+}
+.job-sub .speed { color: var(--cyan); }
+.job-sub .eta   { color: var(--muted2); }
+.job-sub .size  { color: var(--yellow); }
+
+.job-right {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.job-pct {
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--cyan); width: 42px; text-align: right;
+}
+.job-badge {
+  font-size: 8px; font-family: var(--mono);
+  letter-spacing: 1.5px; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 20px; font-weight: 600;
+}
+.b-queued    { background: rgba(58,77,110,.15);   color: var(--muted2); }
+.b-running   { background: rgba(0,212,255,.1);    color: var(--cyan); }
+.b-done      { background: rgba(0,240,160,.1);    color: var(--green); }
+.b-failed    { background: rgba(255,45,85,.12);   color: var(--red); }
+.b-cancelled { background: rgba(255,196,61,.08);  color: var(--yellow); }
+
+/* ── Progress Bar ── */
+.job-progress {
+  height: 3px;
+  background: rgba(255,255,255,0.04);
+  position: relative; overflow: visible;
+}
+.job-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  transition: width .7s cubic-bezier(.4,0,.2,1);
+  position: relative;
+}
+.job-progress-fill::after {
+  content: '';
+  position: absolute; right: -1px; top: -4px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 12px var(--green), 0 0 24px var(--green);
+  opacity: 0; transition: opacity .3s;
+}
+.job-item.is-running .job-progress-fill::after {
+  opacity: 1;
+  animation: glow-dot 1.5s ease-in-out infinite;
+}
+.job-item.is-running .job-progress-fill {
+  box-shadow: 0 0 14px rgba(0,212,255,0.55);
+}
+.job-item.is-failed    .job-progress-fill { background: var(--red); box-shadow: none; }
+.job-item.is-failed    .job-progress-fill::after { display: none; }
+.job-item.is-cancelled .job-progress-fill { background: var(--yellow); box-shadow: none; }
+
+/* ── Job Detail ── */
+.job-detail {
+  display: none;
+  border-top: 1px solid var(--border);
+}
+.job-detail.open { display: block; }
+
+.job-actions {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0,0,0,0.15);
+}
+.job-time-info {
+  margin-left: auto;
+  font-size: 9px; font-family: var(--mono);
+  color: var(--muted); letter-spacing: 1px;
+}
+
+.log-wrap { position: relative; }
+.log-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 16px;
+  background: rgba(0,0,0,0.25);
+  border-bottom: 1px solid var(--border);
+}
+.log-bar-title {
+  font-size: 8px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+}
+.log-out {
+  background: rgba(6,8,16,0.8);
+  font-family: var(--mono); font-size: 11px;
+  color: var(--muted2); line-height: 1.75;
+  padding: 14px 16px;
+  max-height: 180px; overflow-y: auto;
+  white-space: pre-wrap; word-break: break-all;
+}
+.log-out::-webkit-scrollbar { width: 3px; }
+.log-out::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.le { color: var(--red); }
+.lw { color: var(--yellow); }
+.lo { color: var(--green); }
+.lr { color: var(--purple); }
+
+/* ══════════════════════════════════════
+   MEGA BROWSER MODAL
+══════════════════════════════════════ */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(6,8,16,0.88);
+  backdrop-filter: blur(10px);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--s1);
+  border: 1px solid var(--border2);
+  border-radius: 20px; overflow: hidden;
+  width: 100%; max-width: 560px;
+  max-height: 80vh; display: flex; flex-direction: column;
+  box-shadow: 0 0 80px rgba(0,212,255,0.07), 0 40px 100px rgba(0,0,0,.7);
+}
+.modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,212,255,0.04) 0%, transparent 100%);
+}
+.modal-title {
+  font-size: 11px; font-family: var(--mono);
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--cyan); flex: 1;
+}
+.modal-path {
+  font-size: 10px; font-family: var(--mono);
+  color: var(--muted2); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.btn-modal-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted2); font-size: 20px; line-height: 1;
+  padding: 2px 6px; border-radius: 6px;
+  transition: color .2s, background .2s;
+}
+.btn-modal-close:hover { color: var(--red); background: rgba(255,45,85,0.08); }
+
+.modal-body { flex: 1; overflow-y: auto; padding: 8px; }
+.modal-body::-webkit-scrollbar { width: 4px; }
+.modal-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.file-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px;
+  cursor: pointer; transition: background .15s;
+  font-size: 13px;
+}
+.file-item:hover { background: var(--s3); }
+.file-item.selected { background: rgba(0,212,255,0.07); }
+.file-icon { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.file-meta { font-size: 10px; font-family: var(--mono); color: var(--muted); flex-shrink: 0; }
+
+.modal-footer {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,0.2);
+}
+.modal-selected-path {
+  flex: 1; font-size: 10px; font-family: var(--mono);
+  color: var(--muted2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.btn-confirm {
+  padding: 9px 22px;
+  background: linear-gradient(135deg, var(--cyan), var(--green));
+  border: none; border-radius: 9px;
+  color: #000; font-family: var(--mono);
+  font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+  cursor: pointer; transition: opacity .2s, box-shadow .2s;
+  box-shadow: 0 2px 12px rgba(0,212,255,0.25);
+}
+.btn-confirm:hover { opacity: .88; box-shadow: 0 4px 20px rgba(0,212,255,0.35); }
+
+.modal-loading {
+  display: flex; align-items: center; justify-content: center;
+  padding: 48px; gap: 12px;
+  color: var(--muted2); font-family: var(--mono); font-size: 11px;
+}
+
+.breadcrumb {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px; font-family: var(--mono);
+}
+.crumb {
+  color: var(--cyan); cursor: pointer; padding: 2px 5px; border-radius: 4px;
+  transition: background .15s;
+}
+.crumb:hover { background: rgba(0,212,255,0.1); }
+.crumb-sep { color: var(--muted); }
+.crumb.current { color: var(--text); cursor: default; }
+.crumb.current:hover { background: none; }
+
+/* ══════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════ */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 48px 20px; gap: 10px;
+  color: var(--muted); font-size: 11px; font-family: var(--mono);
+  letter-spacing: 1px;
+}
+.empty-icon { font-size: 30px; opacity: .35; }
+
+/* ══════════════════════════════════════
+   TOAST
+══════════════════════════════════════ */
+#toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--s3); border: 1px solid var(--border2);
+  color: var(--text); font-family: var(--mono); font-size: 11px;
+  letter-spacing: 1px; padding: 11px 22px; border-radius: 12px;
+  opacity: 0; transition: all .3s cubic-bezier(.4,0,.2,1); z-index: 9999;
+  box-shadow: 0 10px 40px rgba(0,0,0,.5), 0 0 20px rgba(0,212,255,0.06);
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ══════════════════════════════════════
+   FOOTER
+══════════════════════════════════════ */
+.footer {
+  text-align: center;
+  padding: 28px 0 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+}
+.footer-brand {
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--muted);
+}
+.footer-brand strong {
+  background: linear-gradient(120deg, var(--cyan), var(--purple));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.footer-copy {
+  font-family: var(--mono); font-size: 9px;
+  letter-spacing: 1.5px; color: var(--muted);
+  opacity: .4;
+}
+
+/* ══════════════════════════════════════
+   BADGES
+══════════════════════════════════════ */
+.retry-badge {
+  font-size: 9px; font-family: var(--mono);
+  color: var(--yellow); background: rgba(255,196,61,.08);
+  border: 1px solid rgba(255,196,61,.2);
+  padding: 2px 8px; border-radius: 20px; margin-right: 4px;
+}
+.src-badge {
+  font-size: 8px; font-family: var(--mono);
+  letter-spacing: 1px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 4px;
+}
+.src-direct    { background: rgba(0,212,255,.07); color: var(--cyan2); }
+.src-youtube   { background: rgba(255,48,48,.08);  color: #ff3030; }
+.src-instagram { background: rgba(157,92,255,.08); color: var(--purple); }
+
+/* ══════════════════════════════════════
+   ANIMATIONS
+══════════════════════════════════════ */
+@keyframes blink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 10px var(--green); }
+  50%       { opacity: .35; box-shadow: 0 0 4px var(--green); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ring-pulse {
+  0%, 100% { opacity: .7; transform: scale(1); }
+  50%       { opacity: .15; transform: scale(1.1); }
+}
+@keyframes glow-dot {
+  0%, 100% { box-shadow: 0 0 12px var(--green), 0 0 24px var(--green); }
+  50%       { box-shadow: 0 0 8px var(--cyan),  0 0 16px var(--cyan); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-5px); }
+  40%     { transform: translateX(5px); }
+  60%     { transform: translateX(-3px); }
+  80%     { transform: translateX(3px); }
+}
+.anim-fadeup { animation: fadeUp .4s ease both; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- ── HEADER ── -->
+  <header class="anim-fadeup">
+    <div class="logo-block">
+      <div class="logo-icon">
+        <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="lg1" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#00d4ff"/>
+              <stop offset="100%" stop-color="#00f0a0"/>
+            </linearGradient>
+          </defs>
+          <path d="M14 4 L14 18" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 13 L14 19 L20 13" stroke="url(#lg1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 23 Q5 20 8 20 L20 20 Q23 20 23 23" stroke="url(#lg1)" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.55"/>
+        </svg>
+      </div>
+      <div class="logo-text-group">
+        <div class="logo-name">Licher</div>
+        <div class="logo-tagline">powered by kop3ma</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        Online
+      </div>
+    </div>
+  </header>
+
+  <!-- ── STAT STRIP ── -->
+  <div class="stats-totals anim-fadeup" style="animation-delay:.05s">
+    <div class="stat-cell">
+      <div class="stat-cell-label">Transferred</div>
+      <div class="stat-cell-val cyan" id="totalTransferred">0 B</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-cell-label">Completed</div>
+      <div class="stat-cell-val purple" id="totalJobs">0 / 0</div>
+    </div>
+  </div>
+
+  <!-- ── INPUT CARD ── -->
+  <div class="card anim-fadeup" style="animation-delay:.1s">
+    <div class="card-head">
+      <div class="card-head-dot"></div>
+      <div class="card-head-title">New Transfer</div>
+    </div>
+    <div class="card-body">
+
+      <!-- Source Tabs -->
+      <div class="source-tabs">
+        <button class="source-tab active" onclick="setSourceTab('direct')" id="tab-direct">⬇ Direct</button>
+        <button class="source-tab yt" onclick="setSourceTab('youtube')" id="tab-youtube">▶ YouTube</button>
+        <button class="source-tab ig" onclick="setSourceTab('instagram')" id="tab-instagram">◈ Instagram</button>
+      </div>
+
+      <!-- URL -->
+      <div class="field">
+        <div class="field-label">Source URL</div>
+        <div class="input-wrap">
+          <span class="input-ico">⊕</span>
+          <input type="url" id="iUrl" placeholder="https://..." autocomplete="off"
+                 oninput="onUrlInput()" onpaste="onUrlPaste(event)">
+        </div>
+      </div>
+
+      <!-- Auto Probe Info -->
+      <div class="probe-info" id="probeInfo">
+        <div class="probe-spinner" id="probeSpinner"></div>
+        <div class="probe-chip" id="probeSizeChip" style="display:none">
+          <span class="pk">Size</span>
+          <span class="pv" id="probeSize">—</span>
+        </div>
+        <div class="probe-chip" id="probeTypeChip" style="display:none">
+          <span class="pk">Type</span>
+          <span class="pv" id="probeType">—</span>
+        </div>
+        <div class="probe-chip" id="probeSrcChip" style="display:none">
+          <span class="pk">Source</span>
+          <span class="pv" id="probeSrc">—</span>
+        </div>
+      </div>
+
+      <!-- Quality (yt/ig only) -->
+      <div class="quality-row" id="qualityRow">
+        <div class="field-label" style="width:100%;margin-bottom:2px">Quality</div>
+        <button class="q-btn active" onclick="setQuality('best')" id="q-best">Best</button>
+        <button class="q-btn" onclick="setQuality('1080p')" id="q-1080p">1080p</button>
+        <button class="q-btn" onclick="setQuality('720p')" id="q-720p">720p</button>
+        <button class="q-btn" onclick="setQuality('480p')" id="q-480p">480p</button>
+        <button class="q-btn" onclick="setQuality('audio')" id="q-audio">Audio Only</button>
+      </div>
+
+      <!-- Filename -->
+      <div class="field">
+        <div class="field-label">Filename</div>
+        <div class="input-wrap">
+          <span class="input-ico">✎</span>
+          <input type="text" id="iFile" placeholder="video.mp4" autocomplete="off">
+        </div>
+      </div>
+
+      <!-- Destination -->
+      <div class="dest-row">
+        <div class="field">
+          <div class="field-label">Mega Destination</div>
+          <div class="input-wrap">
+            <span class="input-ico">📁</span>
+            <input type="text" id="iDest" value="mega:/Video" autocomplete="off">
+          </div>
+        </div>
+        <button class="btn-browse" onclick="openMegaBrowser()">Browse</button>
+      </div>
+
+      <!-- Start -->
+      <button class="btn-start" id="startBtn" onclick="startTransfer()">
+        <div class="spin"></div>
+        <span class="lbl">⚡ Start Transfer</span>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ── JOBS CARD ── -->
+  <div class="card anim-fadeup" id="jobsCard" style="animation-delay:.15s; display:none">
+    <div class="jobs-toolbar">
+      <div class="toolbar-title">Transfer Queue</div>
+      <button class="btn-sm warn" onclick="deleteCompleted()">Clear Done</button>
+      <button class="btn-sm danger" onclick="deleteAll()">Kill All</button>
+    </div>
+    <div class="jobs-list" id="jobsList"></div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div class="footer">
+    <div class="footer-brand">Built by <strong>kop3ma</strong></div>
+    <div class="footer-copy">© 2025 kop3ma · All rights reserved</div>
+  </div>
+
+</div><!-- /wrap -->
+
+<!-- ── MEGA BROWSER MODAL ── -->
+<div class="modal-overlay" id="megaModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">📁 Mega Cloud</div>
+      <div class="modal-path" id="modalPath">mega:/</div>
+      <button class="btn-modal-close" onclick="closeMegaBrowser()">×</button>
+    </div>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <div class="modal-body" id="modalBody">
+      <div class="modal-loading">
+        <div class="spin" style="display:block;border-color:rgba(0,212,255,.2);border-top-color:var(--cyan)"></div>
+        Loading...
+      </div>
+    </div>
+    <div class="modal-footer">
+      <div class="modal-selected-path" id="modalSelectedPath">No folder selected</div>
+      <button class="btn-confirm" onclick="confirmMegaPath()">Select →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── TOAST ── -->
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+let jobsData        = {};
+let openDetails     = {};
+let pollTimer       = null;
+let statTimer       = null;
+let selectedQuality = 'best';
+let activeSourceTab = 'direct';
+let probeDebounce   = null;
+
+const STATUS_ICON = { queued:'◌', running:'⟳', done:'✓', failed:'✕', cancelled:'⊘' };
+const SRC_ICONS   = { direct:'⬇', youtube:'▶', instagram:'◈' };
+
+// ═══════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════
+async function api(path, method = 'GET') {
+  const r = await fetch(path, { method });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ═══════════════════════════════════════════
+// SOURCE TABS
+// ═══════════════════════════════════════════
+function setSourceTab(tab) {
+  activeSourceTab = tab;
+  ['direct','youtube','instagram'].forEach(t => {
+    document.getElementById('tab-'+t).classList.toggle('active', t === tab);
+  });
+  const qr = document.getElementById('qualityRow');
+  qr.classList.toggle('visible', tab === 'youtube' || tab === 'instagram');
+}
+
+// ═══════════════════════════════════════════
+// QUALITY
+// ═══════════════════════════════════════════
+function setQuality(q) {
+  selectedQuality = q;
+  document.querySelectorAll('.q-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('q-'+q).classList.add('active');
+}
+
+// ═══════════════════════════════════════════
+// URL INPUT — AUTO PROBE
+// ═══════════════════════════════════════════
+function onUrlInput() {
+  const url = document.getElementById('iUrl').value.trim();
+  if (url.includes('youtube.com') || url.includes('youtu.be')) setSourceTab('youtube');
+  else if (url.includes('instagram.com')) setSourceTab('instagram');
+
+  clearTimeout(probeDebounce);
+  if (!url || !url.startsWith('http')) {
+    hideProbe();
+    return;
+  }
+  // show spinner immediately
+  showProbeLoading();
+  // debounce 600ms after user stops typing
+  probeDebounce = setTimeout(() => probeUrl(url), 600);
+}
+
+function onUrlPaste(e) {
+  setTimeout(onUrlInput, 50);
+}
+
+function showProbeLoading() {
+  const info = document.getElementById('probeInfo');
+  info.classList.add('visible', 'probing');
+  ['probeSizeChip','probeTypeChip','probeSrcChip'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+}
+
+function hideProbe() {
+  const info = document.getElementById('probeInfo');
+  info.classList.remove('visible', 'probing');
+}
+
+async function probeUrl(url) {
+  const info = document.getElementById('probeInfo');
+  try {
+    const data = await fetch('/probe?url=' + encodeURIComponent(url)).then(r => r.json());
+    info.classList.remove('probing');
+
+    if (data.ok) {
+      const sizeChip = document.getElementById('probeSizeChip');
+      const typeChip = document.getElementById('probeTypeChip');
+      const srcChip  = document.getElementById('probeSrcChip');
+
+      if (data.size) {
+        document.getElementById('probeSize').textContent = fmtBytes(data.size);
+        sizeChip.style.display = '';
+      } else {
+        sizeChip.style.display = 'none';
+      }
+
+      if (data.content_type) {
+        document.getElementById('probeType').textContent = data.content_type.split(';')[0];
+        typeChip.style.display = '';
+      } else {
+        typeChip.style.display = 'none';
+      }
+
+      document.getElementById('probeSrc').textContent = data.source_type || 'direct';
+      srcChip.style.display = '';
+
+      if (data.source_type === 'youtube') setSourceTab('youtube');
+      if (data.source_type === 'instagram') setSourceTab('instagram');
+    } else {
+      hideProbe();
+    }
+  } catch(e) {
+    hideProbe();
+  }
+}
+
+// ═══════════════════════════════════════════
+// START TRANSFER
+// ═══════════════════════════════════════════
+async function startTransfer() {
+  const url  = document.getElementById('iUrl').value.trim();
+  const file = document.getElementById('iFile').value.trim();
+  const dest = document.getElementById('iDest').value.trim() || 'mega:/Video';
+  const btn  = document.getElementById('startBtn');
+
+  if (!url || !file) { shake(btn); toast('⚠ Fill in URL and filename'); return; }
+
+  btn.disabled = true; btn.classList.add('loading');
+  try {
+    const form = new FormData();
+    form.append('url', url);
+    form.append('filename', file);
+    form.append('dest', dest);
+    form.append('quality', selectedQuality);
+
+    const data = await fetch('/start', { method: 'POST', body: form }).then(r => r.json());
+    if (data.error) { toast('✕ ' + data.error); return; }
+
+    document.getElementById('iUrl').value  = '';
+    document.getElementById('iFile').value = '';
+    hideProbe();
+
+    toast('✓ Transfer queued');
+    showJobsCard();
+    startPolling();
+    startStatPolling();
+  } catch(e) { toast('✕ Network error'); }
+  finally    { btn.disabled = false; btn.classList.remove('loading'); }
+}
+
+// ═══════════════════════════════════════════
+// POLLING
+// ═══════════════════════════════════════════
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(loadJobs, 2000);
+}
+function stopPolling() { clearInterval(pollTimer); pollTimer = null; }
+
+function startStatPolling() {
+  if (statTimer) return;
+  statTimer = setInterval(loadStats, 2500);
+}
+function stopStatPolling() { clearInterval(statTimer); statTimer = null; }
+
+async function loadJobs() {
+  try {
+    const data = await api('/jobs');
+    Object.assign(jobsData, data);
+    for (const id of Object.keys(jobsData)) {
+      if (!data[id]) delete jobsData[id];
+    }
+    renderJobs();
+    const hasActive = Object.values(data).some(j => j.status === 'queued' || j.status === 'running');
+    if (!hasActive) stopPolling();
+  } catch(e) {}
+}
+
+async function loadStats() {
+  try {
+    const data = await api('/stats');
+    document.getElementById('totalTransferred').textContent = fmtBytes(data.total_transferred_bytes || 0);
+    document.getElementById('totalJobs').textContent = (data.jobs_done || 0) + ' / ' + ((data.jobs_done || 0) + (data.jobs_failed || 0));
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════
+// RENDER JOBS
+// ═══════════════════════════════════════════
+function renderJobs() {
+  const list = document.getElementById('jobsList');
+  const entries = Object.entries(jobsData).reverse();
+
+  if (!entries.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">⊘</div>No transfers yet</div>';
+    document.getElementById('jobsCard').style.display = 'none';
+    return;
+  }
+  showJobsCard();
+
+  const newIds = new Set(entries.map(([id]) => id));
+  for (const el of list.querySelectorAll('.job-item')) {
+    if (!newIds.has(el.dataset.id)) el.remove();
+  }
+
+  for (const [id, job] of entries) {
+    let item = list.querySelector(`.job-item[data-id="${id}"]`);
+    if (!item) {
+      item = document.createElement('div');
+      item.className = `job-item is-${job.status}`;
+      item.dataset.id = id;
+      item.innerHTML = jobItemHTML(id, job);
+      list.insertBefore(item, list.firstChild);
+    } else {
+      updateJobItem(item, id, job);
+    }
+  }
+}
+
+function jobItemHTML(id, job) {
+  const pct      = job.progress > 0 ? `${job.progress.toFixed(0)}%` : '';
+  const open     = openDetails[id] ? 'open' : '';
+  const src      = job.source_type || 'direct';
+  const icon     = STATUS_ICON[job.status] || '?';
+  const barStyle = job.status === 'failed' ? 'background:var(--red);box-shadow:none;' :
+                   job.status === 'cancelled' ? 'background:var(--yellow);box-shadow:none;' : '';
+
+  const retryHTML = job.retries > 0
+    ? `<span class="retry-badge">↻ ${job.retries}/5</span>` : '';
+
+  const subItems = [];
+  if (job.speed)        subItems.push(`<span class="speed">⚡ ${esc(job.speed)}</span>`);
+  if (job.eta)          subItems.push(`<span class="eta">ETA ${esc(job.eta)}</span>`);
+  if (job.filesize_str) subItems.push(`<span class="size">◈ ${esc(job.filesize_str)}</span>`);
+
+  return `
+    <div class="job-row" onclick="toggleDetail('${id}')">
+      <div class="job-status-icon ${job.status}">${icon}</div>
+      <div class="job-info">
+        <div class="job-name">${esc(job.filename || id.slice(0,10))}</div>
+        <div class="job-sub">
+          <span class="src-badge src-${src}">${SRC_ICONS[src]||'⬇'} ${src}</span>
+          ${subItems.join('')}
+        </div>
+      </div>
+      <div class="job-right">
+        ${retryHTML}
+        <span class="job-pct">${pct}</span>
+        <span class="job-badge b-${job.status}">${job.status}</span>
+      </div>
+    </div>
+    <div class="job-progress">
+      <div class="job-progress-fill" style="width:${job.progress||0}%;${barStyle}"></div>
+    </div>
+    <div class="job-detail ${open}">
+      <div class="job-actions">
+        ${job.status === 'running' || job.status === 'queued'
+          ? `<button class="btn-sm danger stop-btn" onclick="cancelJob('${id}');event.stopPropagation()">⏹ Stop</button>`
+          : ''}
+        <button class="btn-sm danger" onclick="event.stopPropagation();deleteJob('${id}')">🗑 Delete</button>
+        <button class="btn-sm" onclick="event.stopPropagation();copyLog('${id}')">⎘ Copy Log</button>
+        ${job.started_at ? `<span class="job-time-info">▸ ${job.started_at}${job.finished_at ? ' · ✓ '+job.finished_at : ''}</span>` : ''}
+      </div>
+      <div class="log-wrap">
+        <div class="log-bar"><span class="log-bar-title">⬛ Output Log</span></div>
+        <div class="log-out" id="log-${id}">${renderLogHTML(job.log)}</div>
+      </div>
+    </div>`;
+}
+
+function updateJobItem(item, id, job) {
+  item.className = `job-item is-${job.status}`;
+
+  const icon = item.querySelector('.job-status-icon');
+  if (icon) { icon.className = `job-status-icon ${job.status}`; icon.textContent = STATUS_ICON[job.status] || '?'; }
+
+  const badge = item.querySelector('.job-badge');
+  if (badge) { badge.className = `job-badge b-${job.status}`; badge.textContent = job.status; }
+
+  const pctEl = item.querySelector('.job-pct');
+  if (pctEl) pctEl.textContent = job.progress > 0 ? `${job.progress.toFixed(0)}%` : '';
+
+  const bar = item.querySelector('.job-progress-fill');
+  if (bar) {
+    bar.style.width      = (job.progress || 0) + '%';
+    bar.style.background = job.status === 'failed' ? 'var(--red)' : job.status === 'cancelled' ? 'var(--yellow)' : '';
+    bar.style.boxShadow  = job.status === 'running' ? '0 0 14px rgba(0,212,255,0.55)' : '';
+  }
+
+  const sub = item.querySelector('.job-sub');
+  if (sub) {
+    const src = job.source_type || 'direct';
+    const parts = [`<span class="src-badge src-${src}">${SRC_ICONS[src]||'⬇'} ${src}</span>`];
+    if (job.speed)        parts.push(`<span class="speed">⚡ ${esc(job.speed)}</span>`);
+    if (job.eta)          parts.push(`<span class="eta">ETA ${esc(job.eta)}</span>`);
+    if (job.filesize_str) parts.push(`<span class="size">◈ ${esc(job.filesize_str)}</span>`);
+    sub.innerHTML = parts.join('');
+  }
+
+  const logEl = item.querySelector(`#log-${id}`);
+  if (logEl && openDetails[id]) {
+    logEl.innerHTML = renderLogHTML(job.log);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  const actions = item.querySelector('.job-actions');
+  if (actions) {
+    const stopBtn = actions.querySelector('.stop-btn');
+    if (job.status === 'running' || job.status === 'queued') {
+      if (!stopBtn) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-sm danger stop-btn';
+        btn.textContent = '⏹ Stop';
+        btn.onclick = (e) => { e.stopPropagation(); cancelJob(id); };
+        actions.insertBefore(btn, actions.firstChild);
+      }
+    } else {
+      if (stopBtn) stopBtn.remove();
+    }
+  }
+}
+
+function renderLogHTML(log) {
+  if (!log) return '';
+  return log.split('\n').map(line => {
+    const e = esc(line);
+    if (/error|failed|critical/i.test(line))  return `<span class="le">${e}</span>`;
+    if (/warn|notice/i.test(line))             return `<span class="lw">${e}</span>`;
+    if (/✓|complete|done|100%/i.test(line))   return `<span class="lo">${e}</span>`;
+    if (/retrying|retry/i.test(line))         return `<span class="lr">${e}</span>`;
+    return e;
+  }).join('\n');
+}
+
+// ═══════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════
+function toggleDetail(id) {
+  openDetails[id] = !openDetails[id];
+  const item = document.querySelector(`.job-item[data-id="${id}"]`);
+  if (!item) return;
+  const detail = item.querySelector('.job-detail');
+  if (detail) {
+    detail.classList.toggle('open', openDetails[id]);
+    if (openDetails[id]) {
+      const logEl = item.querySelector(`#log-${id}`);
+      if (logEl) logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+}
+
+async function cancelJob(id) {
+  await api(`/cancel/${id}`, 'POST');
+  toast('Transfer stopped');
+  loadJobs();
+}
+
+async function deleteJob(id) {
+  await api(`/delete/${id}`, 'POST');
+  delete jobsData[id];
+  delete openDetails[id];
+  toast('Job deleted');
+  renderJobs();
+}
+
+async function deleteCompleted() {
+  const data = await api('/delete-completed', 'POST');
+  toast(`Cleared ${data.removed} job(s)`);
+  await loadJobs();
+}
+
+async function deleteAll() {
+  if (!confirm('Delete ALL jobs?')) return;
+  await api('/delete-all', 'POST');
+  for (const k of Object.keys(jobsData)) delete jobsData[k];
+  toast('All jobs cleared');
+  renderJobs();
+}
+
+function copyLog(id) {
+  const el = document.getElementById(`log-${id}`);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent).then(() => toast('Log copied'));
+}
+
+// ═══════════════════════════════════════════
+// MEGA BROWSER
+// ═══════════════════════════════════════════
+let megaCurrentPath = 'mega:/';
+let megaPathStack   = ['mega:/'];
+let megaSelected    = '';
+
+async function openMegaBrowser() {
+  megaCurrentPath = 'mega:/';
+  megaPathStack   = ['mega:/'];
+  megaSelected    = '';
+  document.getElementById('megaModal').classList.add('open');
+  await loadMegaDir('mega:/');
+}
+
+function closeMegaBrowser() {
+  document.getElementById('megaModal').classList.remove('open');
+}
+
+async function loadMegaDir(path) {
+  megaCurrentPath = path;
+  document.getElementById('modalPath').textContent = path;
+  document.getElementById('modalBody').innerHTML =
+    `<div class="modal-loading"><div class="spin" style="display:block;border-color:rgba(0,212,255,.2);border-top-color:var(--cyan)"></div> Loading...</div>`;
+  renderBreadcrumb();
+  try {
+    const data = await api('/mega/ls?path=' + encodeURIComponent(path));
+    if (!data.ok) {
+      document.getElementById('modalBody').innerHTML =
+        `<div class="empty-state"><div class="empty-icon">✕</div>${esc(data.error||'Failed')}</div>`;
+      return;
+    }
+    renderMegaItems(data.items, path);
+  } catch(e) {
+    document.getElementById('modalBody').innerHTML =
+      `<div class="empty-state"><div class="empty-icon">✕</div>Connection error</div>`;
+  }
+}
+
+function renderMegaItems(items, basePath) {
+  const body = document.getElementById('modalBody');
+  if (!items || !items.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">◌</div>Empty folder</div>';
+    return;
+  }
+  items.sort((a,b) => {
+    if (a.IsDir && !b.IsDir) return -1;
+    if (!a.IsDir && b.IsDir) return 1;
+    return a.Name.localeCompare(b.Name);
+  });
+  body.innerHTML = '';
+  for (const item of items) {
+    const el = document.createElement('div');
+    el.className = 'file-item';
+    const icon     = item.IsDir ? '📁' : getFileIcon(item.Name);
+    const size     = item.IsDir ? '' : fmtBytes(item.Size || 0);
+    const fullPath = basePath.replace(/\/$/, '') + '/' + item.Name;
+
+    el.innerHTML = `
+      <div class="file-icon">${icon}</div>
+      <div class="file-name">${esc(item.Name)}</div>
+      <div class="file-meta">${size}</div>
+      ${item.IsDir ? '<div class="file-meta" style="color:var(--cyan);font-size:9px">▶</div>' : ''}
+    `;
+
+    if (item.IsDir) {
+      el.onclick = () => {
+        megaPathStack.push(fullPath);
+        megaSelected = fullPath;
+        document.getElementById('modalSelectedPath').textContent = fullPath;
+        loadMegaDir(fullPath);
+      };
+    } else {
+      el.onclick = () => {
+        document.querySelectorAll('.file-item').forEach(e => e.classList.remove('selected'));
+        el.classList.add('selected');
+        megaSelected = basePath.replace(/\/$/, '');
+        document.getElementById('modalSelectedPath').textContent = megaSelected;
+      };
+    }
+    body.appendChild(el);
+  }
+}
+
+function renderBreadcrumb() {
+  const bc    = document.getElementById('breadcrumb');
+  const parts = megaCurrentPath.replace('mega:/', '').split('/').filter(Boolean);
+  let html  = `<span class="crumb" onclick="jumpToRoot()">mega:/</span>`;
+  let built = 'mega:/';
+  for (let i = 0; i < parts.length; i++) {
+    built = built.replace(/\/$/, '') + '/' + parts[i];
+    const p         = built;
+    const isCurrent = i === parts.length - 1;
+    html += `<span class="crumb-sep">/</span>`;
+    html += isCurrent
+      ? `<span class="crumb current">${esc(parts[i])}</span>`
+      : `<span class="crumb" onclick="jumpTo('${esc(p)}')">${esc(parts[i])}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function jumpToRoot() { megaPathStack = ['mega:/']; loadMegaDir('mega:/'); }
+function jumpTo(path) { loadMegaDir(path); }
+
+function confirmMegaPath() {
+  const sel = megaSelected || megaCurrentPath;
+  if (sel) {
+    document.getElementById('iDest').value = sel.replace(/\/$/, '');
+    toast('✓ Destination set: ' + sel);
+  }
+  closeMegaBrowser();
+}
+
+// ═══════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════
+function getFileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase();
+  return {mp4:'🎬',mkv:'🎬',avi:'🎬',mov:'🎬',webm:'🎬',
+          mp3:'🎵',m4a:'🎵',flac:'🎵',wav:'🎵',
+          jpg:'🖼',jpeg:'🖼',png:'🖼',gif:'🖼',webp:'🖼',
+          pdf:'📄',zip:'📦',rar:'📦','7z':'📦',
+          txt:'📝',srt:'📝'}[ext] || '📄';
+}
+
+function fmtBytes(n) {
+  if (n < 1024)      return n + ' B';
+  if (n < 1024**2)   return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024**3)   return (n/1024**2).toFixed(1) + ' MB';
+  return (n/1024**3).toFixed(2) + ' GB';
+}
+
+function showJobsCard() {
+  document.getElementById('jobsCard').style.display = '';
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function shake(el) {
+  el.style.animation = 'none';
+  void el.offsetWidth;
+  el.style.animation = 'shake .3s ease';
+  setTimeout(() => el.style.animation = '', 400);
+}
+
+// ── Keyboard
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('megaModal').classList.contains('open'))
+    startTransfer();
+  if (e.key === 'Escape') closeMegaBrowser();
+});
+
+document.getElementById('megaModal').addEventListener('click', function(e) {
+  if (e.target === this) closeMegaBrowser();
+});
+
+// ── Init
+(async () => {
+  try {
+    const data = await api('/jobs');
+    if (Object.keys(data).length) {
+      Object.assign(jobsData, data);
+      showJobsCard(); renderJobs();
+      const hasActive = Object.values(data).some(j => j.status === 'queued' || j.status === 'running');
+      if (hasActive) startPolling();
+    }
+  } catch(_) {}
+  startStatPolling();
+})();
+</script>
+</body>
+</html>
